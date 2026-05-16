@@ -5,28 +5,39 @@ import { ModeToggle } from "./_components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { ShimmerButton } from "shimmer-effects-react";
 
+// localStorage keys
 const HISTORY_KEY = "autocomplete-history";
 const FREQ_KEY = "autocomplete-freq";
 
+// Read search history from localStorage
 function getHistory(): string[] {
   if (typeof window === "undefined") return [];
   return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
 }
+
+// Save a word to search history (most recent first, max 10)
 function saveHistory(word: string) {
   const h = getHistory().filter(w => w !== word);
   h.unshift(word);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, 10)));
+  const json = JSON.stringify(h.slice(0, 10));
+  localStorage.setItem(HISTORY_KEY, json);
+  cachedHistoryRaw = json;
+  cachedHistory = h.slice(0, 10);
 }
+
+// Increment frequency counter for a word (used to rank suggestions)
 function bumpFrequency(word: string) {
   const freq = JSON.parse(localStorage.getItem(FREQ_KEY) || "{}");
   freq[word] = (freq[word] || 0) + 1;
   localStorage.setItem(FREQ_KEY, JSON.stringify(freq));
 }
 
+// Cached snapshot for useSyncExternalStore (avoids infinite re-renders)
 const EMPTY_HISTORY: string[] = [];
 let cachedHistory: string[] = EMPTY_HISTORY;
 let cachedHistoryRaw: string | null = null;
 
+// Returns cached history array, only re-parses when localStorage changes
 function getHistorySnapshot(): string[] {
   const raw = localStorage.getItem(HISTORY_KEY);
   if (raw !== cachedHistoryRaw) {
@@ -40,43 +51,50 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(-1);
+  const [activeIdx, setActiveIdx] = useState(-1); // keyboard-selected badge index
+
+  // Subscribe to history via useSyncExternalStore (SSR-safe, no useEffect setState)
   const history = useSyncExternalStore(
     (cb) => { window.addEventListener("storage", cb); return () => window.removeEventListener("storage", cb); },
     getHistorySnapshot,
     () => EMPTY_HISTORY
   );
-  const abortRef = useRef<AbortController | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [, forceUpdate] = useState(0);
 
+  const abortRef = useRef<AbortController | null>(null); // cancel stale fetches
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // debounce timer
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [, forceUpdate] = useState(0); // trigger re-render after history update
+
+  // First suggestion longer than query (used for inline ghost text on desktop)
   const inlineSuggestion = suggestions.find(w => w.length > query.length) ?? "";
 
+  // Fetch suggestions with debounce + AbortController
   const fetchSuggestions = useCallback((value: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!value) { setSuggestions([]); setLoading(false); return; }
     setLoading(true);
     timerRef.current = setTimeout(async () => {
-      abortRef.current?.abort();
+      abortRef.current?.abort(); // cancel previous request
       const controller = new AbortController();
       abortRef.current = controller;
       try {
         const res = await fetch(`/api/suggest?q=${encodeURIComponent(value)}`, { signal: controller.signal });
         const results: string[] = await res.json();
-        // Sort by localStorage frequency
+        // Sort by user's pick frequency (learned from localStorage)
         const freq = JSON.parse(localStorage.getItem(FREQ_KEY) || "{}");
         const filtered = results.filter(w => w.length > value.length);
         filtered.sort((a, b) => (freq[b] || 0) - (freq[a] || 0));
         setSuggestions(filtered);
-      } catch { /* aborted */ }
+      } catch { /* request aborted, ignore */ }
       setLoading(false);
       setActiveIdx(-1);
     }, 100);
   }, []);
 
+  // Cleanup debounce timer on unmount
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
+  // Keyboard handler: Tab accepts inline, Arrow keys navigate badges, Enter selects
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === "Tab" && inlineSuggestion) {
       e.preventDefault();
@@ -93,13 +111,14 @@ export default function Home() {
     }
   }
 
+  // Accept a suggestion: update query, save to history, bump frequency
   function accept(word: string) {
     setQuery(word);
     setSuggestions([]);
     setActiveIdx(-1);
     saveHistory(word);
     bumpFrequency(word);
-    forceUpdate(n => n + 1);
+    forceUpdate(n => n + 1); // re-render to reflect updated history
     inputRef.current?.focus();
   }
 
@@ -113,6 +132,8 @@ export default function Home() {
         <h1 className="text-2xl font-bold mb-4 text-center text-zinc-900 dark:text-zinc-100">
           Text Autocomplete
         </h1>
+
+        {/* Input with inline ghost suggestion (visible on desktop only) */}
         <div className="relative">
           {inlineSuggestion && (
             <div className="absolute inset-0 px-4 py-3 whitespace-pre text-zinc-400 dark:text-zinc-600 pointer-events-none hidden sm:block">
@@ -136,7 +157,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Shimmer loading */}
+        {/* Shimmer loading placeholder while fetching */}
         {loading && suggestions.length === 0 && (
           <div className="mt-2 flex gap-2">
             {[1, 2, 3].map(i => (
@@ -145,12 +166,12 @@ export default function Home() {
           </div>
         )}
 
-        {/* Badge suggestions */}
+        {/* Clickable badge suggestions (horizontal scroll, hidden scrollbar) */}
         {suggestions.length > 0 && (
           <div
             id="suggestions-list"
             role="listbox"
-            className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-none]"
+            className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           >
             {suggestions.map((word, idx) => (
               <Badge
@@ -162,6 +183,7 @@ export default function Home() {
                 onClick={() => accept(word)}
                 className="cursor-pointer shrink-0 text-xs px-3 py-1"
               >
+                {/* Prefix highlight: bold the typed portion */}
                 <span className="font-bold">{word.slice(0, query.length)}</span>
                 {word.slice(query.length)}
               </Badge>
@@ -169,7 +191,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Recent history when input is empty */}
+        {/* Recent search history (shown when input is empty) */}
         {showHistory && (
           <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-none]">
             <span className="text-xs text-zinc-400 shrink-0 self-center">Recent:</span>
@@ -186,6 +208,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* Hint text: adapts to screen size */}
         <p className="mt-3 text-xs text-zinc-400 text-center">
           <span className="sm:hidden">Tap a suggestion to autocomplete</span>
           <span className="hidden sm:inline">Tab to accept · Arrow keys to navigate · Enter to select</span>
