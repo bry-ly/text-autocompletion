@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { ModeToggle } from "./_components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { ShimmerButton } from "shimmer-effects-react";
@@ -23,18 +23,33 @@ function bumpFrequency(word: string) {
   localStorage.setItem(FREQ_KEY, JSON.stringify(freq));
 }
 
+const EMPTY_HISTORY: string[] = [];
+let cachedHistory: string[] = EMPTY_HISTORY;
+let cachedHistoryRaw: string | null = null;
+
+function getHistorySnapshot(): string[] {
+  const raw = localStorage.getItem(HISTORY_KEY);
+  if (raw !== cachedHistoryRaw) {
+    cachedHistoryRaw = raw;
+    cachedHistory = raw ? JSON.parse(raw) : EMPTY_HISTORY;
+  }
+  return cachedHistory;
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
-  const [history, setHistory] = useState<string[]>([]);
-  const [mounted, setMounted] = useState(false);
+  const history = useSyncExternalStore(
+    (cb) => { window.addEventListener("storage", cb); return () => window.removeEventListener("storage", cb); },
+    getHistorySnapshot,
+    () => EMPTY_HISTORY
+  );
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setMounted(true); setHistory(getHistory()); }, []);
+  const [, forceUpdate] = useState(0);
 
   const inlineSuggestion = suggestions.find(w => w.length > query.length) ?? "";
 
@@ -84,11 +99,11 @@ export default function Home() {
     setActiveIdx(-1);
     saveHistory(word);
     bumpFrequency(word);
-    setHistory(getHistory());
+    forceUpdate(n => n + 1);
     inputRef.current?.focus();
   }
 
-  const showHistory = mounted && !query && history.length > 0;
+  const showHistory = !query && history.length > 0;
   const activeId = activeIdx >= 0 ? `suggestion-${activeIdx}` : undefined;
 
   return (
@@ -135,7 +150,7 @@ export default function Home() {
           <div
             id="suggestions-list"
             role="listbox"
-            className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+            className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-none]"
           >
             {suggestions.map((word, idx) => (
               <Badge
@@ -156,7 +171,7 @@ export default function Home() {
 
         {/* Recent history when input is empty */}
         {showHistory && (
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-none]">
             <span className="text-xs text-zinc-400 shrink-0 self-center">Recent:</span>
             {history.map(word => (
               <Badge
