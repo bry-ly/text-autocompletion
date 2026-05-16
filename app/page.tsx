@@ -136,8 +136,13 @@ export default function Home() {
         {/* Input with inline ghost suggestion (visible on desktop only) */}
         <div className="relative">
           {inlineSuggestion && (
-            <div className="absolute inset-0 px-4 py-3 whitespace-pre text-zinc-400 dark:text-zinc-600 pointer-events-none hidden sm:block">
-              <span className="invisible">{query}</span>{inlineSuggestion.slice(query.length)}
+            <div
+              className="absolute inset-0 px-4 py-3 whitespace-pre text-zinc-400 dark:text-zinc-600 pointer-events-none"
+            >
+              <span className="invisible">{query}</span>
+              <span className="pointer-events-auto cursor-pointer sm:pointer-events-none" onClick={() => accept(inlineSuggestion)}>
+                {inlineSuggestion.slice(query.length)}
+              </span>
             </div>
           )}
           <input
@@ -210,7 +215,7 @@ export default function Home() {
 
         {/* Hint text: adapts to screen size */}
         <p className="mt-3 text-xs text-zinc-400 text-center">
-          <span className="sm:hidden">Tap a suggestion to autocomplete</span>
+          <span className="sm:hidden">Tap a suggestion or tap input to accept inline hint</span>
           <span className="hidden sm:inline">Tab to accept · Arrow keys to navigate · Enter to select</span>
         </p>
       </div>
