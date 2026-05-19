@@ -128,3 +128,20 @@
     @apply font-mono;
   }
 }
+
+@layer utilities {
+  .glass {
+    background: color-mix(in srgb, var(--background), transparent 40%);
+    backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--foreground), transparent 90%);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

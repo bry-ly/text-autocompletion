@@ -32,6 +32,15 @@ function bumpFrequency(word: string) {
   localStorage.setItem(FREQ_KEY, JSON.stringify(freq));
 }
 
+// Clear all search history
+function clearHistory() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(HISTORY_KEY);
+  cachedHistoryRaw = null;
+  cachedHistory = EMPTY_HISTORY;
+  window.dispatchEvent(new Event("storage"));
+}
+
 // Cached snapshot for useSyncExternalStore (avoids infinite re-renders)
 const EMPTY_HISTORY: string[] = [];
 let cachedHistory: string[] = EMPTY_HISTORY;
@@ -65,8 +74,8 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [, forceUpdate] = useState(0); // trigger re-render after history update
 
-  // First suggestion longer than query (used for inline ghost text on desktop)
-  const inlineSuggestion = suggestions.find(w => w.length > query.length) ?? "";
+  // First suggestion that is an exact prefix match (used for inline ghost text)
+  const inlineSuggestion = suggestions.find(w => w.toLowerCase().startsWith(query.toLowerCase()) && w.length > query.length) ?? "";
 
   // Fetch suggestions with debounce + AbortController
   const fetchSuggestions = useCallback((value: string) => {
@@ -126,21 +135,21 @@ export default function Home() {
   const activeId = activeIdx >= 0 ? `suggestion-${activeIdx}` : undefined;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4 relative">
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4 relative overflow-hidden">
       <div className="absolute top-4 right-4"><ModeToggle /></div>
-      <div className="w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-4 text-center text-zinc-900 dark:text-zinc-100">
+      <div className="w-full max-w-lg z-10">
+        <h1 className="text-3xl font-bold mb-6 text-center text-zinc-900 dark:text-zinc-100">
           Text Autocomplete
         </h1>
 
-        {/* Input with inline ghost suggestion (visible on desktop only) */}
-        <div className="relative">
+        {/* Input Container - Minimal Design */}
+        <div className="relative bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-all duration-200 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500">
           {inlineSuggestion && (
             <div
-              className="absolute inset-0 px-4 py-3 whitespace-pre text-zinc-400 dark:text-zinc-600 pointer-events-none"
+              className="absolute inset-0 px-4 py-4 whitespace-pre text-zinc-400 dark:text-zinc-600 pointer-events-none text-lg font-normal"
             >
               <span className="invisible">{query}</span>
-              <span className="pointer-events-auto cursor-pointer sm:pointer-events-none" onClick={() => accept(inlineSuggestion)}>
+              <span className="pointer-events-none">
                 {inlineSuggestion.slice(query.length)}
               </span>
             </div>
@@ -152,7 +161,7 @@ export default function Home() {
             onChange={(e) => { setQuery(e.target.value); fetchSuggestions(e.target.value); }}
             onKeyDown={handleKey}
             placeholder="Start typing..."
-            className="relative w-full px-4 py-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="relative w-full px-4 py-4 rounded-xl bg-transparent text-zinc-900 dark:text-zinc-100 text-lg placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none transition-all"
             aria-label="Search input"
             aria-activedescendant={activeId}
             aria-controls="suggestions-list"
@@ -171,13 +180,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* Clickable badge suggestions (horizontal scroll, hidden scrollbar) */}
+        {/* Clickable badge suggestions with edge fades */}
         {suggestions.length > 0 && (
-          <div
-            id="suggestions-list"
-            role="listbox"
-            className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-          >
+          <div className="relative mt-4">
+            <div
+              id="suggestions-list"
+              role="listbox"
+              className="flex gap-2 overflow-x-auto pb-2 no-scrollbar scroll-smooth"
+            >
             {suggestions.map((word, idx) => (
               <Badge
                 key={word}
@@ -189,27 +199,39 @@ export default function Home() {
                 className="cursor-pointer shrink-0 text-xs px-3 py-1"
               >
                 {/* Prefix highlight: bold the typed portion */}
-                <span className="font-bold">{word.slice(0, query.length)}</span>
-                {word.slice(query.length)}
+                <span className="font-bold text-zinc-900 dark:text-zinc-100">{word.slice(0, query.length)}</span>
+                <span className="text-zinc-500 dark:text-zinc-400">{word.slice(query.length)}</span>
               </Badge>
             ))}
+            </div>
+            {/* Edge fades */}
+            <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-zinc-50 dark:from-zinc-950 to-transparent pointer-events-none z-10" />
+            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-zinc-50 dark:from-zinc-950 to-transparent pointer-events-none z-10" />
           </div>
         )}
 
         {/* Recent search history (shown when input is empty) */}
         {showHistory && (
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-none]">
-            <span className="text-xs text-zinc-400 shrink-0 self-center">Recent:</span>
-            {history.map(word => (
-              <Badge
-                key={word}
-                variant="outline"
-                onClick={() => { setQuery(word); fetchSuggestions(word); }}
-                className="cursor-pointer shrink-0 text-xs px-3 py-1"
-              >
-                {word}
-              </Badge>
-            ))}
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar scroll-smooth">
+              <span className="text-xs text-zinc-400 shrink-0 self-center">Recent:</span>
+              {history.map(word => (
+                <Badge
+                  key={word}
+                  variant="outline"
+                  onClick={() => { setQuery(word); fetchSuggestions(word); }}
+                  className="cursor-pointer shrink-0 text-xs px-3 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  {word}
+                </Badge>
+              ))}
+            </div>
+            <button
+              onClick={clearHistory}
+              className="ml-4 text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors underline underline-offset-2"
+            >
+              Clear
+            </button>
           </div>
         )}
 

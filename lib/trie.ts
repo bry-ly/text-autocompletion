@@ -31,7 +31,7 @@ export function getSuggestions(prefix: string, limit = 8): string[] {
   for (const ch of lower) {
     if (!node.children.has(ch)) {
       // Fall back to fuzzy if no prefix match
-      return getFuzzySuggestions(lower, limit);
+      return getFuzzySuggestions(lower, limit).map(([w]) => w);
     }
     node = node.children.get(ch)!;
   }
@@ -41,8 +41,8 @@ export function getSuggestions(prefix: string, limit = 8): string[] {
     // Supplement with fuzzy results
     const fuzzy = getFuzzySuggestions(lower, limit - results.length);
     const existing = new Set(results.map(([w]) => w));
-    for (const w of fuzzy) {
-      if (!existing.has(w)) results.push([w, 1]);
+    for (const [w, weight] of fuzzy) {
+      if (!existing.has(w)) results.push([w, weight / 10]); // weight/10 to prioritize prefix matches
     }
   }
   results.sort((a, b) => b[1] - a[1]);
@@ -57,7 +57,7 @@ function collect(node: TrieNode, prefix: string, results: [string, number][]) {
 }
 
 // Simple fuzzy: edit distance <= 1 for short queries, <= 2 for longer
-function getFuzzySuggestions(query: string, limit: number): string[] {
+function getFuzzySuggestions(query: string, limit: number): [string, number][] {
   const maxDist = query.length <= 3 ? 1 : 2;
   const scored: [string, number, number][] = [];
   for (const [word, weight] of allWords) {
@@ -65,8 +65,9 @@ function getFuzzySuggestions(query: string, limit: number): string[] {
     const dist = levenshtein(query, word.slice(0, query.length + maxDist));
     if (dist <= maxDist) scored.push([word, weight, dist]);
   }
+  // Sort by: 1. Distance (lower is better), 2. Weight (higher is better)
   scored.sort((a, b) => a[2] - b[2] || b[1] - a[1]);
-  return scored.slice(0, limit).map(([w]) => w);
+  return scored.slice(0, limit).map(([w, weight]) => [w, weight]);
 }
 
 function levenshtein(a: string, b: string): number {
